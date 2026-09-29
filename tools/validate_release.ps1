@@ -50,7 +50,7 @@ Check ($Manifest.folder -ne $TurbineInstallFolder) 'POWER / TURBINE DIRECTORY CO
 $ExpectedFiles = @('main.lua','gib2a_logo_ethos_180.png','README.md','CHANGELOG.md','INSTALLATION.md')
 Check ((Compare-Object $ExpectedFiles @($Manifest.files)).Count -eq 0 -and @($Manifest.files).Count -eq $ExpectedFiles.Count) 'manifest file list'
 Check (@($Manifest.files) -contains 'main.lua') 'MAIN.LUA INCLUDED IN FILES: YES'
-Check (Test-Path -LiteralPath (Join-Path $Root 'GIB2A PW.png')) 'publication image exists'
+Check (Test-Path -LiteralPath (Join-Path $Root 'docs\GIB2A PW.png')) 'publication image exists'
 Check (Test-Path -LiteralPath $ZipPath) 'release ZIP exists'
 
 if (Test-Path -LiteralPath $ZipPath) {

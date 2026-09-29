@@ -1,0 +1,8 @@
+*.tmp
+*.bak
+*.orig
+.DS_Store
+Thumbs.db
+releases/*/*.partial
+/GIB2A PW.png
+GIB2A PW/ARCHIVE MAIN LUA/

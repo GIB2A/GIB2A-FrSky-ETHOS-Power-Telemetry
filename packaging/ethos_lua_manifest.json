@@ -1,0 +1,18 @@
+{
+  "manifestVersion": 1,
+  "name": "GIB2A POWER - FrSky Neuron ESC Telemetry",
+  "key": "com.gib2a.ethos.power",
+  "version": "26.1.1",
+  "releaseNotes": {
+    "format": "markdown",
+    "content": "# GIB2A POWER v26.1.1\n\nAdvanced FrSky Neuron ESC Telemetry Dashboard for ETHOS\n\nPart of the GIB2A Advanced Telemetry Dashboard family.\n\n- 24-sector Voltage, Battery, RPM, and temperature gauges\n- Monotonic Battery percentage calculated from stabilized pack voltage\n- Auto Bind for seven Neuron telemetry roles\n- Configurable alarms, battery callouts, themes, and responsive layouts\n\nVerify the installation and telemetry sources on the target radio before flight."
+  },
+  "folder": "GIB2APW",
+  "files": [
+    "main.lua",
+    "gib2a_logo_ethos_180.png",
+    "README.md",
+    "CHANGELOG.md",
+    "INSTALLATION.md"
+  ]
+}

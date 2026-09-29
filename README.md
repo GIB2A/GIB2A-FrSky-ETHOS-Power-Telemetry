@@ -6,6 +6,8 @@ Part of the **GIB2A Advanced Telemetry Dashboard** family.
 
 ![GIB2A POWER](docs/GIB2A%20PW.png)
 
+[**Download GIB2A POWER v26.1.1 — ETHOS Suite ZIP**](https://github.com/GIB2A/GIB2A-FrSky-ETHOS-Power-Telemetry/releases/download/v26.1.1/GIB2A-POWER-v26.1.1.zip)
+
 ## Overview
 
 GIB2A POWER is the electric power telemetry dashboard in the GIB2A product family. Designed for FrSky ETHOS radios and FrSky Neuron ESC telemetry, it presents essential propulsion and battery data in a clear in-flight display.
@@ -34,7 +36,7 @@ Battery percentage is derived from the stabilized and filtered ESC pack voltage.
 
 ## Compatibility
 
-GIB2A POWER supports FrSky Neuron ESC telemetry through the public FrSky ETHOS Lua API. The code targets ETHOS 1.6.x and ETHOS 26.1.0-RC3 compatibility where the required public APIs are available.
+GIB2A POWER supports FrSky Neuron ESC telemetry through the public FrSky ETHOS Lua API. The current release is designed for ETHOS 26.1.x, including ETHOS 26.1.2, where the required public Lua APIs are available.
 
 ### ETHOS Radio Compatibility
 

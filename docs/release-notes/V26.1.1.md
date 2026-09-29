@@ -24,7 +24,7 @@ Auto Bind covers ESC voltage, ESC current, RPM, ESC temperature, consumed capaci
 
 - FrSky Neuron ESC telemetry
 - FrSky ETHOS radios with the required public Lua APIs
-- ETHOS 1.6.x and ETHOS 26.1.0-RC3 compatibility targeted where possible
+- Designed for ETHOS 26.1.x, including ETHOS 26.1.2, where the required public Lua APIs are available.
 
 The supported layouts passed local mock and rendering checks. Physical validation on a specific radio, ETHOS firmware, and Neuron ESC has not been performed as part of this package review.
 

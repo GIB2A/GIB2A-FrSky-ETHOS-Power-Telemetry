@@ -1,5 +1,14 @@
 # Changelog
 
+## v26.1.2 — 2026-10-05
+
+- New independent empirical GIB2A LiPo SOC curve.
+- Linear interpolation between SOC calibration points.
+- Improved Smart Battery behavior at RPM 0: the indication follows the calculated voltage-based target.
+- Initial SOC now uses the current stabilized voltage instead of the stabilization sample average.
+- RPM-active monotonic behavior and the 1% per second drop limit are retained.
+- Existing alarms, battery callouts, telemetry mappings, and layouts are unchanged.
+
 ## [26.1.1] - Unreleased
 
 ### Added

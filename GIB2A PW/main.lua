@@ -1,8 +1,8 @@
--- GIB2A POWER - V26.1.1
+-- GIB2A POWER - V26.1.2
 -- Telemetry only. No ESC configuration or control.
 
 -- Metadata / constants
-local WIDGET_VERSION = "V26.1.1"
+local WIDGET_VERSION = "V26.1.2"
 local SOURCE_RECOVERY_SECONDS = 1
 local DEBUG_SOURCE_ENGINE = false
 local VOLTAGE_RECOVERY_HYSTERESIS = 0.10
@@ -19,13 +19,11 @@ local BATTERY_THRESHOLD_EPSILON = 0.000001
 local BATTERY_STABILIZATION_DELAY = 1.5
 local BATTERY_STABILIZATION_SAMPLES = 5
 local BATTERY_STABILIZATION_SPREAD = 0.15
-local BATTERY_MIN_CELL_VOLTAGE = 3.30
-local BATTERY_FULL_CELL_VOLTAGE = 4.10
 local BATTERY_MAX_CELL_VOLTAGE = 4.30
-local BATTERY_RESERVE_PERCENT = 30
-local BATTERY_RESERVE_FACTOR = 1.4
 local BATTERY_MAX_VOLTAGE_FALL_PER_CELL_SECOND = 0.05
 local BATTERY_MAX_DROP_PERCENT_PER_SECOND = 1
+local BATTERY_SAG_COMPENSATION = 0.7
+local BATTERY_RPM_ACTIVE_MINIMUM = 100
 local VOLTAGE_NORMAL = "NORMAL"
 local VOLTAGE_WARNING = "WARNING"
 local VOLTAGE_CRITICAL = "CRITICAL"
@@ -102,6 +100,15 @@ local function clamp(value, lo, hi)
     return math.max(lo, math.min(hi, value))
 end
 
+-- GIB2A empirical LiPo SOC calibration based on independent battery measurements.
+-- Provisional curve: add anchors only after new GIB2A measurements are validated.
+local GIB2A_LIPO_SOC_CURVE = {
+    { voltage = 3.000, soc = 0 },   -- Existing GIB2A per-cell safety limit.
+    { voltage = 3.750, soc = 20 },  -- GIB2A Robbe / ISDT measurement zone.
+    { voltage = 3.803, soc = 33 },  -- GIB2A Robbe / ISDT measurement zone.
+    { voltage = 4.200, soc = 100 }, -- Standard LiPo full-charge endpoint.
+}
+
 local function validateBatteryAlarmThresholds(config)
     if config.batteryWarningPercent <= 0 then
         config.batteryWarningPercent, config.batteryCriticalPercent = 0, 0
@@ -127,6 +134,7 @@ local function resetSmartBattery(widget)
     widget.batteryStabilizeNotBefore = nil
     widget.batteryFilteredVoltage = nil
     widget.batteryLastUpdateAt = nil
+    widget.batteryLastRpm = nil
     widget.batteryConfigCells = widget.config.batteryCells
     widget.batteryCallout50Armed, widget.batteryCallout35Armed = true, true
     if widget.values then widget.values.battery = nil end
@@ -525,11 +533,34 @@ local function autoBindNeuron(widget)
 end
 
 local function batteryPercentFromCellVoltage(cellVoltage)
-    local usableRange = BATTERY_FULL_CELL_VOLTAGE - BATTERY_MIN_CELL_VOLTAGE
-    local adjustedMinimum = BATTERY_MIN_CELL_VOLTAGE + usableRange
-        * (BATTERY_RESERVE_PERCENT / 100) * BATTERY_RESERVE_FACTOR
-    return clamp(100 * (cellVoltage - adjustedMinimum)
-        / (BATTERY_FULL_CELL_VOLTAGE - adjustedMinimum), 0, 100)
+    if not finite(cellVoltage) then return nil end
+    local first = GIB2A_LIPO_SOC_CURVE[1]
+    if cellVoltage < first.voltage then return 0 end
+    for index = 2, #GIB2A_LIPO_SOC_CURVE do
+        local lower = GIB2A_LIPO_SOC_CURVE[index - 1]
+        local upper = GIB2A_LIPO_SOC_CURVE[index]
+        if cellVoltage <= upper.voltage then
+            local soc = lower.soc
+                + (cellVoltage - lower.voltage)
+                / (upper.voltage - lower.voltage)
+                * (upper.soc - lower.soc)
+            return clamp(soc, 0, 100)
+        end
+    end
+    return 100
+end
+
+local function batterySagCompensatedCellVoltage(widget, cellVoltage)
+    local rpm = widget.values.rpm
+    if not finite(rpm) or rpm < BATTERY_RPM_ACTIVE_MINIMUM then
+        return cellVoltage, false
+    end
+    local previousRpm = widget.batteryLastRpm
+    widget.batteryLastRpm = rpm
+    if not finite(previousRpm) or previousRpm <= 0 then return cellVoltage, true end
+    local rpmDropFactor = math.max(0, (previousRpm - rpm) / previousRpm)
+    local compensationScale = BATTERY_SAG_COMPENSATION ^ 1.5
+    return cellVoltage + compensationScale * rpmDropFactor * 0.5, true
 end
 
 -- DashX-style Voltage Sensor: stabilized/filtered cell voltage drives Battery %.
@@ -561,15 +592,14 @@ local function updateBattery(widget)
             samples[#samples + 1] = voltage
             if #samples > BATTERY_STABILIZATION_SAMPLES then table.remove(samples, 1) end
             if #samples == BATTERY_STABILIZATION_SAMPLES then
-                local minimum, maximum, total = samples[1], samples[1], 0
+                local minimum, maximum = samples[1], samples[1]
                 for index = 1, BATTERY_STABILIZATION_SAMPLES do
                     local sample = samples[index]
                     minimum, maximum = math.min(minimum, sample), math.max(maximum, sample)
-                    total = total + sample
                 end
                 if maximum - minimum <= BATTERY_STABILIZATION_SPREAD then
                     widget.batteryFilteredVoltage = clamp(
-                        total / BATTERY_STABILIZATION_SAMPLES, 0,
+                        voltage, 0,
                         BATTERY_MAX_CELL_VOLTAGE * cells)
                     widget.batteryLastUpdateAt = now
                     battery = batteryPercentFromCellVoltage(widget.batteryFilteredVoltage / cells)
@@ -588,8 +618,10 @@ local function updateBattery(widget)
         widget.batteryFilteredVoltage = clamp(filteredVoltage, 0,
             BATTERY_MAX_CELL_VOLTAGE * cells)
         widget.batteryLastUpdateAt = now
-        local target = batteryPercentFromCellVoltage(widget.batteryFilteredVoltage / cells)
-        if previous ~= nil then
+        local compensatedCellVoltage, rpmActive = batterySagCompensatedCellVoltage(
+            widget, widget.batteryFilteredVoltage / cells)
+        local target = batteryPercentFromCellVoltage(compensatedCellVoltage)
+        if previous ~= nil and rpmActive then
             if target < previous then
                 battery = math.max(target, previous - BATTERY_MAX_DROP_PERCENT_PER_SECOND * elapsed)
             else

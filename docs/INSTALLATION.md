@@ -6,13 +6,13 @@ GIB2A POWER is part of the **GIB2A Advanced Telemetry Dashboard** family and is 
 
 ## ETHOS Suite Installation
 
-1. Download `GIB2A-POWER-v26.1.1.zip` from the v26.1.1 GitHub Release.
-2. Verify the ZIP SHA-256 against `releases/V26.1.1/SHA256SUMS.txt`.
+1. Download `GIB2A-POWER-v26.1.2.zip` from the v26.1.2 GitHub Release.
+2. Verify the ZIP SHA-256 against `releases/V26.1.2/SHA256SUMS.txt`.
 3. Open ETHOS Suite.
 4. Select `Lua Library` > `Install from local .zip`.
 5. Select the archive without extracting it.
 6. Let ETHOS Suite install the `GIB2APW` folder.
-7. Restart the radio and add `GIB2A POWER V26.1.1` to a view.
+7. Restart the radio and add `GIB2A POWER V26.1.2` to a view.
 8. Discover telemetry, run Auto Bind if appropriate, and verify each source.
 
 The ZIP stores `ethos_lua_manifest.json` and all declared package files directly at its root. The manifest field `folder` instructs ETHOS Suite to install the widget into `RADIO:/scripts/GIB2APW/`. The ZIP root and the installed widget directory are therefore different concepts.
@@ -31,6 +31,6 @@ Create `SCRIPTS/GIB2APW/` on the radio SD card. Copy `main.lua` and `gib2a_logo_
 6. Confirm the configured audio files are present on the radio.
 7. Verify every displayed value before flight.
 
-Battery percentage is calculated from stabilized and filtered ESC pack voltage and remains monotonic during a run. The widget is telemetry-only and does not configure or control the ESC.
+Battery percentage is an estimated LiPo state of charge calculated from stabilized and filtered ESC pack voltage. When RPM is inactive, it follows the calculated voltage-based target. When RPM is active, downward changes are rate-limited and upward rebound is blocked. The widget is telemetry-only and does not configure or control the ESC.
 
 Responsive layouts have passed local checks at 480x300, 480x320, and 800x480. Validate the complete installation on the intended radio, ETHOS firmware, and Neuron ESC before flight.

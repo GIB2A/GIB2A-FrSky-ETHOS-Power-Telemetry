@@ -6,7 +6,7 @@ Part of the **GIB2A Advanced Telemetry Dashboard** family.
 
 ![GIB2A POWER](docs/GIB2A%20PW.png)
 
-[**Download GIB2A POWER v26.1.1 — ETHOS Suite ZIP**](https://github.com/GIB2A/GIB2A-FrSky-ETHOS-Power-Telemetry/releases/download/v26.1.1/GIB2A-POWER-v26.1.1.zip)
+[**Download GIB2A POWER v26.1.2 — ETHOS Suite ZIP**](https://github.com/GIB2A/GIB2A-FrSky-ETHOS-Power-Telemetry/releases/download/v26.1.2/GIB2A-POWER-v26.1.2.zip)
 
 ## Overview
 
@@ -17,8 +17,8 @@ It is the official electric-power sibling to [GIB2A TURBINE](https://github.com/
 ## Features
 
 - 24-sector Voltage, Battery, RPM, and ESC temperature gauges
-- Battery percentage calculated from stabilized and filtered pack voltage
-- Monotonic Battery indication during a run, with controlled decreases and no upward rebound before reset
+- Estimated LiPo state of charge calculated from stabilized and filtered pack voltage using the independent empirical GIB2A SOC curve
+- Direct voltage-based SOC tracking while RPM is inactive; rate-limited decreases and blocked upward rebound while RPM is active
 - ESC consumption display in mAh
 - Auto Bind for seven FrSky Neuron telemetry roles using AppID families and units
 - Manual source selection for receiver voltage, RSSI, DIY fields, and chrono
@@ -32,7 +32,7 @@ It is the official electric-power sibling to [GIB2A TURBINE](https://github.com/
 
 Auto Bind covers ESC voltage, ESC current, RPM, ESC temperature, consumed capacity, BEC voltage, and BEC current. Receiver voltage, RSSI 2.4 GHz, RSSI 900 MHz, two DIY fields, and a chrono source can be assigned manually.
 
-Battery percentage is derived from the stabilized and filtered ESC pack voltage. Set the correct cell count before using the Battery gauge or voltage alarms.
+Battery percentage is an estimated LiPo state of charge calculated from stabilized and filtered ESC pack voltage. The independent empirical GIB2A curve uses linear interpolation between calibration points. When RPM is inactive, the indication follows the calculated voltage-based target. When RPM is active, downward changes are rate-limited and upward rebound is blocked. Set the correct cell count before using the Battery gauge or voltage alarms.
 
 ## Compatibility
 
@@ -46,11 +46,11 @@ Responsive layouts for 480x300, 480x320, and 800x480 have passed local rendering
 
 ### ETHOS Suite Installation
 
-1. Download `GIB2A-POWER-v26.1.1.zip` from the GitHub Release.
+1. Download `GIB2A-POWER-v26.1.2.zip` from the GitHub Release.
 2. Open ETHOS Suite and select `Lua Library` > `Install from local .zip`.
 3. Select the ZIP without extracting it.
 4. Let ETHOS Suite install the `GIB2APW` widget folder.
-5. Restart the radio and add `GIB2A POWER V26.1.1` to a view.
+5. Restart the radio and add `GIB2A POWER V26.1.2` to a view.
 6. Discover telemetry, run Auto Bind if appropriate, and verify every assigned source before flight.
 
 The ETHOS Suite package stores its manifest and payload files directly at the ZIP root. The manifest installs those files into `RADIO:/scripts/GIB2APW/`.
@@ -73,17 +73,17 @@ GIB2A POWER supports configurable battery, voltage, temperature, and RPM alert f
 
 Download the ETHOS Suite installation package:
 
-[GIB2A POWER v26.1.1 — Download ZIP](https://github.com/GIB2A/GIB2A-FrSky-ETHOS-Power-Telemetry/releases/download/v26.1.1/GIB2A-POWER-v26.1.1.zip)
+[GIB2A POWER v26.1.2 — Download ZIP](https://github.com/GIB2A/GIB2A-FrSky-ETHOS-Power-Telemetry/releases/download/v26.1.2/GIB2A-POWER-v26.1.2.zip)
 
 ## Release
 
-- Version: `26.1.1`
-- Tag: `v26.1.1`
-- Package: `GIB2A-POWER-v26.1.1.zip`
+- Version: `26.1.2`
+- Tag: `v26.1.2`
+- Package: `GIB2A-POWER-v26.1.2.zip`
 - Installed folder: `GIB2APW`
 - Internal widget key: `GIB2APW`
 
-Local validation passed 161,010 assertions across 18 viewport sizes in a mock Lua 5.3 runtime. Installation of the final package through ETHOS Suite has also been confirmed. This evidence does not replace in-flight validation of a specific radio, firmware, and ESC combination. See the [v26.1.1 release notes](docs/release-notes/V26.1.1.md) and [SHA-256 checksums](releases/V26.1.1/SHA256SUMS.txt).
+Local validation passed 161,145 assertions across 18 viewport sizes in a mock Lua 5.3 runtime. Physical radio and ESC validation was not performed for this release build. This evidence does not replace validation of a specific radio, firmware, and ESC combination. See the [v26.1.2 release notes](docs/release-notes/V26.1.2.md) and [SHA-256 checksums](releases/V26.1.2/SHA256SUMS.txt).
 
 ## GIB2A Product Family
 

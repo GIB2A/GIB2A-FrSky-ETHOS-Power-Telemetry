@@ -6,13 +6,13 @@ GIB2A POWER is part of the **GIB2A Advanced Telemetry Dashboard** family and is 
 
 ## ETHOS Suite Installation
 
-1. Download `GIB2A-POWER-v26.1.2.zip` from the v26.1.2 GitHub Release.
-2. Verify the ZIP SHA-256 against `releases/V26.1.2/SHA256SUMS.txt`.
+1. Download `GIB2A-POWER-v26.1.3.zip` from the v26.1.3 GitHub Release.
+2. Verify the ZIP SHA-256 against `releases/V26.1.3/SHA256SUMS.txt`.
 3. Open ETHOS Suite.
 4. Select `Lua Library` > `Install from local .zip`.
 5. Select the archive without extracting it.
 6. Let ETHOS Suite install the `GIB2APW` folder.
-7. Restart the radio and add `GIB2A POWER V26.1.2` to a view.
+7. Restart the radio and add `GIB2A POWER V26.1.3` to a view.
 8. Discover telemetry, run Auto Bind if appropriate, and verify each source.
 
 The ZIP stores `ethos_lua_manifest.json` and all declared package files directly at its root. The manifest field `folder` instructs ETHOS Suite to install the widget into `RADIO:/scripts/GIB2APW/`. The ZIP root and the installed widget directory are therefore different concepts.

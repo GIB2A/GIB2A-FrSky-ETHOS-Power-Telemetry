@@ -1,10 +1,10 @@
--- GIB2A POWER - V26.1.2
+-- GIB2A POWER - V26.1.3
 -- Telemetry only. No ESC configuration or control.
 
 -- Metadata / constants
-local WIDGET_VERSION = "V26.1.2"
+local WIDGET_VERSION = "V26.1.3"
 local SOURCE_RECOVERY_SECONDS = 1
-local DEBUG_SOURCE_ENGINE = false
+local DISPLAY_REFRESH_SECONDS = 1.00
 local VOLTAGE_RECOVERY_HYSTERESIS = 0.10
 local VOLTAGE_WARNING_CONFIRM_TIME = 4.0
 local VOLTAGE_CRITICAL_CONFIRM_TIME = 2.0
@@ -24,12 +24,13 @@ local BATTERY_MAX_VOLTAGE_FALL_PER_CELL_SECOND = 0.05
 local BATTERY_MAX_DROP_PERCENT_PER_SECOND = 1
 local BATTERY_SAG_COMPENSATION = 0.7
 local BATTERY_RPM_ACTIVE_MINIMUM = 100
+local FLIGHT_RPM_ACTIVE_MINIMUM = 100
+local FLIGHT_END_CONFIRM_SECONDS = 5
 local VOLTAGE_NORMAL = "NORMAL"
 local VOLTAGE_WARNING = "WARNING"
 local VOLTAGE_CRITICAL = "CRITICAL"
 local LOGO_PATH = "gib2a_logo_ethos_180.png"
 local logo = nil -- loaded once in init(), never from paint()
-local annulusMaskCache = nil -- loaded once in init(), never from paint()
 local audioPath = "/audio"
 if system and system.getAudioVoice then
     local ok, path = pcall(system.getAudioVoice)
@@ -194,30 +195,43 @@ local function playBatteryCallout(widget, percent)
     end
 end
 
+local function resetFlightSummary(widget)
+    widget.flightSummary = {
+        active = false,
+        completed = false,
+        maxRpm = nil,
+        maxCurrent = nil,
+        maxPower = nil,
+        minVoltage = nil,
+        duration = 0,
+        minRf1 = nil,
+        minRf2 = nil,
+        startedAt = nil,
+        startChrono = nil,
+        inactiveSince = nil,
+        voltageLostSince = nil,
+    }
+    widget.dirty = true
+end
+
 local function create()
     local widget = { config = {}, values = {}, units = {},
         chrono = "--",
+        view = "dashboard",
         voltageState = nil, voltageWarningPendingAt = nil, voltageCriticalPendingAt = nil,
         voltageAlarmRepeatAt = nil,
         tempAlarmActive = false, rpmAlarmActive = false,
         batteryCallout50Armed = true, batteryCallout35Armed = true,
         _autoBindStatus = string.format("Auto-bind NEURON: 0/%d sensors", AUTO_BIND_TOTAL),
-        _normalizedTelemetrySources = {}, _sourceRecoveryAt = {}, _sourceUnits = {},
-        sourceDebug = { READ_OK = 0, READ_ERROR = 0,
-            RECOVERY_ATTEMPT = 0, RECOVERY_SUCCESS = 0 },
+        _normalizedTelemetrySources = {}, _resolvedRssiSources = {},
+        _sourceRecoveryAt = {}, _sourceUnits = {}, _nextDisplayRefreshAt = nil,
         dirty = true }
     for _, setting in ipairs(SETTINGS) do
         widget.config[setting.key] = setting.default
     end
     resetSmartBattery(widget)
+    resetFlightSummary(widget)
     return widget
-end
-
--- Source engine: direct value() path, one authoritative Source per field.
-local function debugCount(widget, key)
-    local counters = widget.sourceDebug
-    counters[key] = (counters[key] or 0) + 1
-    if DEBUG_SOURCE_ENGINE and print then print("SOURCE " .. key .. "=" .. counters[key]) end
 end
 
 local NORMALIZED_TELEMETRY_SOURCE_FIELDS = {
@@ -228,13 +242,13 @@ local NORMALIZED_TELEMETRY_SOURCE_FIELDS = {
     tempSource = true,
     becVoltageSource = true,
     becCurrentSource = true,
+    rxBatterySource = true,
     chronoSource = true,
     diy1Source = true,
     diy2Source = true,
 }
 
 local SYSTEM_SOURCE_FIELDS = {
-    rxBatterySource = true,
     rssi24Source = true,
     rssi900Source = true,
 }
@@ -242,6 +256,8 @@ local SYSTEM_SOURCE_FIELDS = {
 local function setWidgetSource(widget, definition, source, alreadyNormalized)
     widget[definition.field] = source
     widget._normalizedTelemetrySources[definition.field] = alreadyNormalized and source or nil
+    widget._resolvedRssiSources = widget._resolvedRssiSources or {}
+    widget._resolvedRssiSources[definition.field] = nil
     widget._sourceRecoveryAt[definition.field] = nil
     widget._sourceUnits[definition.id] = nil
     widget.values[definition.id], widget.units[definition.id] = nil, ""
@@ -303,10 +319,8 @@ local function readSourceValue(widget, srcField)
 
     local okValue, value = pcall(src.value, src)
     if okValue then
-        debugCount(widget, "READ_OK")
         return value
     end
-    debugCount(widget, "READ_ERROR")
 
     local now = system.getTimeCounter and system.getTimeCounter() / 100 or os.clock()
     widget._sourceRecoveryAt = widget._sourceRecoveryAt or {}
@@ -315,7 +329,6 @@ local function readSourceValue(widget, srcField)
         return nil
     end
     widget._sourceRecoveryAt[srcField] = now
-    debugCount(widget, "RECOVERY_ATTEMPT")
 
     if type(src.name) ~= "function" or not system.getSource then
         return nil
@@ -335,43 +348,98 @@ local function readSourceValue(widget, srcField)
     widget._normalizedTelemetrySources[srcField] = recoveredSource
     local okRecoveredValue, recoveredValue = pcall(recoveredSource.value, recoveredSource)
     if okRecoveredValue then
-        debugCount(widget, "RECOVERY_SUCCESS")
-        debugCount(widget, "READ_OK")
         return recoveredValue
     end
-    debugCount(widget, "READ_ERROR")
 
     return nil
 end
 
-local function readSystemSourceValue(src)
+local function readSystemSourceValue(widget, srcField)
+    local src = widget[srcField]
     if not src then
         return nil
     end
 
-    local realSrc = src
+    if type(src.value) == "function" then
+        local okValue, value = pcall(src.value, src)
+        if okValue and finite(value) then
+            return value
+        end
+    end
+
+    local now = sourceEngineNow()
+    if now == nil then return nil end
+    local lastRecovery = widget._sourceRecoveryAt[srcField]
+    if lastRecovery and (now - lastRecovery) < SOURCE_RECOVERY_SECONDS then
+        return nil
+    end
+    widget._sourceRecoveryAt[srcField] = now
+
+    if type(src.name) == "function" and system.getSource then
+        local okName, name = pcall(src.name, src)
+        if okName and type(name) == "string" and name ~= "" then
+            local okSource, recoveredSource = pcall(system.getSource, name)
+            if okSource and recoveredSource and recoveredSource ~= src
+                and type(recoveredSource.value) == "function" then
+                local okValue, value = pcall(recoveredSource.value, recoveredSource)
+                if okValue and finite(value) then
+                    return value
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+local function readRssiSourceValue(widget, srcField)
+    local src = widget[srcField]
+    if not src then return nil end
+
+    widget._resolvedRssiSources = widget._resolvedRssiSources or {}
+    local cached = widget._resolvedRssiSources[srcField]
+    if cached and cached.selected ~= src then
+        widget._resolvedRssiSources[srcField] = nil
+        widget._sourceRecoveryAt[srcField] = nil
+        cached = nil
+    end
+
+    if cached and type(cached.source.value) == "function" then
+        local okValue, value = pcall(cached.source.value, cached.source)
+        if okValue then return value end
+        widget._resolvedRssiSources[srcField] = nil
+    end
+
+    local now = sourceEngineNow()
+    widget._sourceRecoveryAt = widget._sourceRecoveryAt or {}
+    local lastRecovery = widget._sourceRecoveryAt[srcField]
+    if now ~= nil and lastRecovery
+        and (now - lastRecovery) < SOURCE_RECOVERY_SECONDS then
+        if type(src.value) == "function" then
+            local okFallback, fallbackValue = pcall(src.value, src)
+            if okFallback then return fallbackValue end
+        end
+        return nil
+    end
+    widget._sourceRecoveryAt[srcField] = now or lastRecovery
+
     if type(src.name) == "function" and system.getSource then
         local okName, name = pcall(src.name, src)
         if okName and type(name) == "string" and name ~= "" then
             local okSource, resolvedSource = pcall(system.getSource, name)
             if okSource and resolvedSource and type(resolvedSource.value) == "function" then
-                realSrc = resolvedSource
+                widget._resolvedRssiSources[srcField] = {
+                    selected = src, source = resolvedSource }
+                local okValue, value = pcall(resolvedSource.value, resolvedSource)
+                if okValue then return value end
+                widget._resolvedRssiSources[srcField] = nil
             end
         end
     end
 
-    if type(realSrc.value) == "function" then
-        local okValue, value = pcall(realSrc.value, realSrc)
-        if okValue then
-            return value
-        end
-    end
-
-    if realSrc ~= src and type(src.value) == "function" then
+    if type(src.value) == "function" then
         local okFallback, fallbackValue = pcall(src.value, src)
-        if okFallback then
-            return fallbackValue
-        end
+        if okFallback then return fallbackValue end
     end
 
     return nil
@@ -438,8 +506,9 @@ local function normalize(id, value, unit, physical)
         if unit == "°F" or unit == "F" then return (value - 32) * 5 / 9, "°C" end
         if physicalIs(physical, UNIT_FAHRENHEIT) then return (value - 32) * 5 / 9, "°C" end
         return value, "°C"
-    elseif id == "rx" or id == "rssi1" or id == "rssi2"
-        or id == "diy1" or id == "diy2" then
+    elseif id == "rssi1" or id == "rssi2" then
+        return value, unit ~= "" and unit or "dB"
+    elseif id == "rx" or id == "diy1" or id == "diy2" then
         return value, unit -- generic sources retain the exact ETHOS unit
     end
     return nil, ""
@@ -796,6 +865,82 @@ local function updateChrono(widget)
     widget.chrono = text
 end
 
+local function flightMaximum(current, value)
+    if not finite(value) then return current end
+    if current == nil or value > current then return value end
+    return current
+end
+
+local function flightMinimum(current, value)
+    if not finite(value) then return current end
+    if current == nil or value < current then return value end
+    return current
+end
+
+local function updateFlightDuration(summary, chrono, now)
+    if finite(summary.startChrono) and finite(chrono) then
+        summary.duration = math.abs(chrono - summary.startChrono)
+    elseif finite(summary.startedAt) and finite(now) then
+        summary.duration = math.max(0, now - summary.startedAt)
+    end
+end
+
+local function updateFlightSummary(widget)
+    local now = sourceEngineNow()
+    if now == nil then return end
+    local summary = widget.flightSummary
+    local voltage, rpm = widget.values.voltage, widget.values.rpm
+    local engineActive = finite(voltage) and voltage > 0
+        and finite(rpm) and rpm >= FLIGHT_RPM_ACTIVE_MINIMUM
+
+    if not summary.active and engineActive then
+        resetFlightSummary(widget)
+        summary = widget.flightSummary
+        summary.active = true
+        summary.startedAt = now
+        summary.startChrono = finite(widget.values.chrono) and widget.values.chrono or nil
+    end
+
+    if not summary.active then return end
+
+    local current = widget.values.escCurrent
+    local rf1, rf2 = widget.values.rssi1, widget.values.rssi2
+    summary.maxRpm = flightMaximum(summary.maxRpm, rpm)
+    summary.maxCurrent = flightMaximum(summary.maxCurrent,
+        finite(current) and current >= 0 and current or nil)
+    summary.minVoltage = flightMinimum(summary.minVoltage, voltage)
+    summary.minRf1 = flightMinimum(summary.minRf1, rf1)
+    summary.minRf2 = flightMinimum(summary.minRf2, rf2)
+    if finite(voltage) and finite(current) and current >= 0 then
+        summary.maxPower = flightMaximum(summary.maxPower, voltage * current)
+    end
+    updateFlightDuration(summary, widget.values.chrono, now)
+
+    if finite(rpm) and rpm < FLIGHT_RPM_ACTIVE_MINIMUM then
+        summary.inactiveSince = summary.inactiveSince or now
+    elseif finite(rpm) and rpm >= FLIGHT_RPM_ACTIVE_MINIMUM then
+        summary.inactiveSince = nil
+    end
+    if not finite(voltage) or voltage <= 0 then
+        summary.voltageLostSince = summary.voltageLostSince or now
+    else
+        summary.voltageLostSince = nil
+    end
+
+    local inactiveConfirmed = summary.inactiveSince
+        and now - summary.inactiveSince >= FLIGHT_END_CONFIRM_SECONDS
+    local voltageLossConfirmed = summary.voltageLostSince
+        and now - summary.voltageLostSince >= FLIGHT_END_CONFIRM_SECONDS
+    if inactiveConfirmed or voltageLossConfirmed then
+        updateFlightDuration(summary, widget.values.chrono, now)
+        summary.active = false
+        summary.completed = true
+        summary.inactiveSince = nil
+        summary.voltageLostSince = nil
+        widget.dirty = true
+    end
+end
+
 -- Responsive geometry, based on available window, never radio model.
 local function getLayout(widget, width, height)
     local cached = widget.layout
@@ -895,64 +1040,13 @@ local function getLayout(widget, width, height)
     return layout
 end
 
--- Reusable drawing primitives. Precomputed unit vectors avoid paint trig.
-local SEGMENTS = {}
-for i = 0, 30 do
-    local angle = math.rad(135 + i * 9)
-    SEGMENTS[i + 1] = { math.cos(angle), math.sin(angle) }
-end
 local ANNULUS_SEGMENT_COUNT = 24
 local ANNULUS_START_ANGLE = 210
 local ANNULUS_SWEEP_ANGLE = 300
 local ANNULUS_FILL_RATIO = 0.84
 local ANNULUS_THICKNESS_RATIO = 0.15
 local ANNULUS_PIXEL_TUNING_ENABLED = true
-local ANNULUS_RENDER_MODE = 0 -- 0 = ETHOS sectors, 1 = native pre-rasterized masks
-if type(GIB2A_ANNULUS_RENDER_MODE_OVERRIDE) == "number" then
-    ANNULUS_RENDER_MODE = GIB2A_ANNULUS_RENDER_MODE_OVERRIDE
-end
-local ANNULUS_MASK_PROFILES = {
-    ["480x300"] = { id = "x14", width = 480, height = 300,
-        bigRadius = 58, smallRadius = 26, bigOffset = 58, smallOffset = 26 },
-    ["480x320"] = { id = "x18", width = 480, height = 320,
-        bigRadius = 62, smallRadius = 28, bigOffset = 62, smallOffset = 28 },
-    ["800x480"] = { id = "x20", width = 800, height = 480,
-        bigRadius = 128, smallRadius = 60.5, bigOffset = 128, smallOffset = 61 },
-}
 local FONTS = { FONT_XXL, FONT_XL, FONT_L, FONT_M, FONT_S, FONT_XS, FONT_XXS }
-
-local function loadAnnulusMaskPack(profile, prefix, offset)
-    local pack = { segments = {}, offset = offset }
-    local path = "masks/" .. profile.id .. "/"
-    local okFull, full = pcall(lcd.loadMask,
-        path .. prefix .. "_full.png")
-    if not okFull or not full then return nil end
-    pack.full = full
-    for i = 1, ANNULUS_SEGMENT_COUNT do
-        local okSegment, segment = pcall(lcd.loadMask,
-            path .. string.format("%s_segment_%02d.png", prefix, i))
-        if not okSegment or not segment then return nil end
-        pack.segments[i] = segment
-    end
-    return pack
-end
-
-local function nativeAnnulusMaskProfile()
-    if type(system.getVersion) ~= "function" then return nil end
-    local okVersion, version = pcall(system.getVersion)
-    if not okVersion or type(version) ~= "table" then return nil end
-    local key = string.format("%sx%s", tostring(version.lcdWidth), tostring(version.lcdHeight))
-    return ANNULUS_MASK_PROFILES[key]
-end
-
-local function loadAnnulusMasks(profile)
-    if not profile then return nil end
-    if type(lcd.loadMask) ~= "function" or type(lcd.drawMask) ~= "function" then return nil end
-    local big = loadAnnulusMaskPack(profile, "big", profile.bigOffset)
-    local small = loadAnnulusMaskPack(profile, "small", profile.smallOffset)
-    if not big or not small then return nil end
-    return { profile = profile, big = big, small = small }
-end
 
 local function fittedText(x, y, text, width, height, color, centerVertically)
     lcd.color(color)
@@ -1035,7 +1129,7 @@ local function numberText(value, decimals)
 end
 
 local function drawGauge(x, y, radius, minValue, maxValue, value, unit,
-        gaugeType, box, activeColor, palette, useNativeMasks)
+        gaugeType, box, activeColor, palette)
     local fraction = value and clamp((value - minValue) / (maxValue - minValue), 0, 1) or 0
     activeColor = activeColor or palette.main
     local segmentedInner = radius - math.max(3, radius * ANNULUS_THICKNESS_RATIO)
@@ -1067,44 +1161,17 @@ local function drawGauge(x, y, radius, minValue, maxValue, value, unit,
             end
             return color
         end
-        local bigGauge = gaugeType == "VOLTAGE" or gaugeType == "BATTERY"
-        local expectedRadius = annulusMaskCache
-            and (bigGauge and annulusMaskCache.profile.bigRadius
-                or annulusMaskCache.profile.smallRadius) or nil
-        local maskPack = useNativeMasks and radius == expectedRadius
-            and (bigGauge and annulusMaskCache.big or annulusMaskCache.small) or nil
-        if maskPack then
-            local offset = maskPack.offset
-            lcd.color(palette.inactive)
-            lcd.drawMask(x - offset, y - offset, maskPack.full)
-            for i = 0, ANNULUS_SEGMENT_COUNT - 1 do
-                local color = segmentColor(i)
-                if color ~= palette.inactive then
-                    lcd.color(color)
-                    lcd.drawMask(x - offset, y - offset, maskPack.segments[i + 1])
-                end
-            end
-        else
-            for i = 0, ANNULUS_SEGMENT_COUNT - 1 do
-                local color = segmentColor(i)
-                lcd.color(color)
-                local slotStart = ANNULUS_START_ANGLE + i * stepAngle
-                local segmentStart = slotStart
-                    + (ANNULUS_PIXEL_TUNING_ENABLED and gapAngle / 2 or 0)
-                local segmentEnd = ANNULUS_PIXEL_TUNING_ENABLED
-                    and ANNULUS_START_ANGLE + (i + 1) * stepAngle - gapAngle / 2
-                    or segmentStart + visibleAngle
-                lcd.drawAnnulusSector(x, y, inner, radius,
-                    segmentStart, segmentEnd)
-            end
-        end
-    elseif radius >= 28 then
-        for i = 1, #SEGMENTS do
-            local vector = SEGMENTS[i]
-            lcd.color(value and i / #SEGMENTS <= fraction and activeColor or palette.inactive)
-            local inner = radius - math.max(3, math.floor(radius * 0.08))
-            lcd.drawLine(math.floor(x + inner * vector[1]), math.floor(y + inner * vector[2]),
-                math.floor(x + radius * vector[1]), math.floor(y + radius * vector[2]))
+        for i = 0, ANNULUS_SEGMENT_COUNT - 1 do
+            local color = segmentColor(i)
+            lcd.color(color)
+            local slotStart = ANNULUS_START_ANGLE + i * stepAngle
+            local segmentStart = slotStart
+                + (ANNULUS_PIXEL_TUNING_ENABLED and gapAngle / 2 or 0)
+            local segmentEnd = ANNULUS_PIXEL_TUNING_ENABLED
+                and ANNULUS_START_ANGLE + (i + 1) * stepAngle - gapAngle / 2
+                or segmentStart + visibleAngle
+            lcd.drawAnnulusSector(x, y, inner, radius,
+                segmentStart, segmentEnd)
         end
     end
     local valueWidth = box.compact and box.width
@@ -1250,12 +1317,71 @@ local function drawCompactHeader(widget, layout, palette)
     end
 end
 
+local function durationText(seconds)
+    if not finite(seconds) then return "--" end
+    local total = math.max(0, math.floor(seconds + 0.5))
+    return string.format("%d:%02d", math.floor(total / 60), total % 60)
+end
+
+local function summaryValue(value, decimals, unit)
+    local text = numberText(value, decimals)
+    if text == "---" then return "--" end
+    return text .. (unit and unit ~= "" and " " .. unit or "")
+end
+
+local function drawMetricCard(x, y, width, height, label, value, palette)
+    local inset = math.max(4, math.floor(width * 0.04))
+    local labelHeight = 14
+    lcd.color(palette.inactive)
+    lcd.drawRectangle(math.floor(x), math.floor(y), math.floor(width), math.floor(height))
+    fittedText(x + width / 2, y + 5, label,
+        width - inset * 2, labelHeight, palette.text, true)
+    fittedText(x + width / 2, y + labelHeight + 8, value,
+        width - inset * 2, height - labelHeight - 14, palette.value, true)
+end
+
+local function drawFlightSummary(widget, width, height, palette)
+    local summary = widget.flightSummary
+    fittedText(width / 2, 4, "FLIGHT SUMMARY", width - 12, 28, palette.main, true)
+    local status = summary.active and "ACTIVE" or (summary.completed and "COMPLETE" or "NO FLIGHT")
+    fittedText(width / 2, 30, status, width - 12, 18,
+        summary.active and palette.warning or palette.text, true)
+    local margin = math.max(8, math.floor(width * 0.025))
+    local gap = math.max(5, math.floor(width * 0.012))
+    local rowGap = math.max(8, math.floor(height * 0.025))
+    local metricsTop = 64
+    local cardHeight = math.floor((height - metricsTop - margin - rowGap) * 0.38)
+    local rowOneWidth = (width - margin * 2 - gap * 3) / 4
+    local rowTwoWidth = (width - margin * 2 - gap * 2) / 3
+    local rowTwoY = metricsTop + cardHeight + rowGap
+
+    drawMetricCard(margin, metricsTop, rowOneWidth, cardHeight,
+        "MAX RPM", summaryValue(summary.maxRpm, 0, "RPM"), palette)
+    drawMetricCard(margin + rowOneWidth + gap, metricsTop, rowOneWidth, cardHeight,
+        "MAX CURRENT", summaryValue(summary.maxCurrent, 1, "A"), palette)
+    drawMetricCard(margin + (rowOneWidth + gap) * 2, metricsTop, rowOneWidth, cardHeight,
+        "MAX POWER", summaryValue(summary.maxPower, 0, "W"), palette)
+    drawMetricCard(margin + (rowOneWidth + gap) * 3, metricsTop, rowOneWidth, cardHeight,
+        "MIN PACK", summaryValue(summary.minVoltage, 1, "V"), palette)
+
+    drawMetricCard(margin, rowTwoY, rowTwoWidth, cardHeight,
+        "DURATION", durationText(summary.duration), palette)
+    drawMetricCard(margin + rowTwoWidth + gap, rowTwoY, rowTwoWidth, cardHeight,
+        "RSSI 2.4 MIN", summaryValue(summary.minRf1, 0, widget.units.rssi1), palette)
+    drawMetricCard(margin + (rowTwoWidth + gap) * 2, rowTwoY, rowTwoWidth, cardHeight,
+        "RSSI 900 MIN", summaryValue(summary.minRf2, 0, widget.units.rssi2), palette)
+end
+
 -- Drawing: paint() consumes cached data only.
 local function paint(widget)
     local width, height = lcd.getWindowSize()
     local palette = getPalette(widget.config.theme)
     lcd.color(palette.background)
     lcd.drawFilledRectangle(0, 0, width, height)
+    if widget.view == "summary" then
+        drawFlightSummary(widget, width, height, palette)
+        return
+    end
     if width < 240 or height < 240 or (width < 460 and height < 320) then
         fittedText(width / 2, math.max(0, height / 2 - 12), "Enlarge widget", width, 24, palette.text)
         return
@@ -1300,10 +1426,7 @@ local function paint(widget)
             activeColor = palette.critical
         end
         drawGauge(box.x, box.y, box.radius, minValue, maxValue,
-            widget.values[gauge.id], gauge.unit, gauge.type, box, activeColor, palette,
-            ANNULUS_RENDER_MODE == 1 and annulusMaskCache
-                and width == annulusMaskCache.profile.width
-                and height == annulusMaskCache.profile.height)
+            widget.values[gauge.id], gauge.unit, gauge.type, box, activeColor, palette)
     end
     if layout.consumed then
         local title, value = layout.consumedTitle, layout.consumedValue
@@ -1323,43 +1446,62 @@ local function wakeup(widget)
     for _, definition in ipairs(SOURCES) do
         local id = definition.id
         local field = definition.field
-        local raw
-        if SYSTEM_SOURCE_FIELDS[field] then
-            raw = readSystemSourceValue(widget[field])
-        else
-            raw = readSourceValue(widget, field)
-        end
         local source = widget[field]
-        local cachedUnit = widget._sourceUnits[id]
-        if not cachedUnit or cachedUnit.source ~= source then
-            local physical = sourcePhysicalUnit(source)
-            cachedUnit = { source = source,
-                text = sourceUnit(source) or canonicalPhysicalUnit(physical) or "",
-                physical = physical }
-            widget._sourceUnits[id] = cachedUnit
-        end
-        local unit, physical = cachedUnit.text, cachedUnit.physical
-        local value, normalizedUnit = normalize(id, raw, unit, physical)
-        if widget.values[id] ~= value or widget.units[id] ~= normalizedUnit then widget.dirty = true end
-        widget.values[id], widget.units[id] = value, normalizedUnit
-        if DEBUG_SOURCE_ENGINE and source then
-            local okName, name = false, nil
-            if type(source.name) == "function" then
-                okName, name = pcall(source.name, source)
+        if source then
+            local raw
+            if id == "rssi1" or id == "rssi2" then
+                raw = readRssiSourceValue(widget, field)
+            elseif SYSTEM_SOURCE_FIELDS[field] then
+                raw = readSystemSourceValue(widget, field)
+            else
+                raw = readSourceValue(widget, field)
             end
-            if not okName then name = "?" end
-            print(string.format("POWER SRC %s name=%s raw=%s unit='%s' physical=%s norm=%s",
-                id, tostring(name), tostring(raw),
-                unit or "", tostring(physical), tostring(value)))
+            local cachedUnit = widget._sourceUnits[id]
+            if not cachedUnit or cachedUnit.source ~= source then
+                local physical = sourcePhysicalUnit(source)
+                cachedUnit = { source = source,
+                    text = sourceUnit(source) or canonicalPhysicalUnit(physical) or "",
+                    physical = physical }
+                widget._sourceUnits[id] = cachedUnit
+            end
+            local unit, physical = cachedUnit.text, cachedUnit.physical
+            local value, normalizedUnit = normalize(id, raw, unit, physical)
+            if widget.values[id] ~= value or widget.units[id] ~= normalizedUnit then
+                widget.dirty = true
+            end
+            widget.values[id], widget.units[id] = value, normalizedUnit
+        elseif widget.values[id] ~= nil or (widget.units[id] or "") ~= "" then
+            widget.values[id], widget.units[id] = nil, ""
+            widget.dirty = true
         end
     end
-    updateChrono(widget)
-    updateBattery(widget)
-    updateVoltageState(widget)
-    updateHighAlarms(widget)
+
+    if widget.chronoSource or widget.chrono ~= "--" then updateChrono(widget) end
+    if widget.voltageSource or widget.values.battery ~= nil
+        or widget.batteryStabilizeNotBefore ~= nil
+        or widget.batteryFilteredVoltage ~= nil
+        or #widget.batteryVoltageSamples > 0 then
+        updateBattery(widget)
+    end
+    if widget.voltageSource or widget.voltageState ~= nil
+        or widget.voltageWarningPendingAt ~= nil
+        or widget.voltageCriticalPendingAt ~= nil
+        or widget.voltageAlarmRepeatAt ~= nil then
+        updateVoltageState(widget)
+    end
+    if widget.tempSource or widget.rpmSource then updateHighAlarms(widget) end
+    if widget.voltageSource or widget.rpmSource or widget.flightSummary.active then
+        updateFlightSummary(widget)
+    end
+
     if widget.dirty and lcd.isVisible() then
-        lcd.invalidate()
-        widget.dirty = false
+        local now = sourceEngineNow()
+        if now == nil or widget._nextDisplayRefreshAt == nil
+            or now >= widget._nextDisplayRefreshAt then
+            lcd.invalidate()
+            widget.dirty = false
+            widget._nextDisplayRefreshAt = now and (now + DISPLAY_REFRESH_SECONDS) or nil
+        end
     end
 end
 
@@ -1509,6 +1651,29 @@ local function configure(widget)
     buildConfig(widget)
 end
 
+local function menu(widget)
+    local function invalidateMenuAction()
+        if lcd.isVisible() then
+            lcd.invalidate()
+            widget.dirty = false
+        else
+            widget.dirty = true
+        end
+    end
+    local function selectView(view)
+        widget.view = view
+        invalidateMenuAction()
+    end
+    return {
+        { "Dashboard", function() selectView("dashboard") end },
+        { "Flight Summary", function() selectView("summary") end },
+        { "Reset Flight Summary", function()
+            resetFlightSummary(widget)
+            invalidateMenuAction()
+        end },
+    }
+end
+
 -- Persistence: identical pwr_ key sequence in read and write.
 -- Manual and Auto Bind selections persist through the same Source fields.
 local function read(widget)
@@ -1567,9 +1732,8 @@ end
 local function init()
     local ok, bitmap = pcall(lcd.loadBitmap, LOGO_PATH)
     if ok then logo = bitmap end
-    annulusMaskCache = loadAnnulusMasks(nativeAnnulusMaskProfile())
     system.registerWidget({ key = "GIB2APW", name = "GIB2A POWER " .. WIDGET_VERSION,
-        create = create, wakeup = wakeup, paint = paint, configure = configure,
+        create = create, wakeup = wakeup, paint = paint, configure = configure, menu = menu,
         read = read, write = write })
 end
 

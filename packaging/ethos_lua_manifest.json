@@ -2,10 +2,10 @@
   "manifestVersion": 1,
   "name": "GIB2A POWER - FrSky Neuron ESC Telemetry",
   "key": "com.gib2a.ethos.power",
-  "version": "26.1.2",
+  "version": "26.1.3",
   "releaseNotes": {
     "format": "markdown",
-    "content": "# GIB2A POWER v26.1.2\n\nAdvanced FrSky Neuron ESC Telemetry Dashboard for ETHOS\n\n- Improved Smart Battery estimated state-of-charge calculation\n- Independent empirical GIB2A LiPo SOC curve\n- Linear interpolation between calibration points\n- Improved RPM 0 behavior: SOC follows the voltage-based target\n- Initial SOC uses the current voltage after stabilization\n- Existing alarms, callouts, telemetry mappings, and layouts preserved\n\nVerify the installation and telemetry sources on the target radio before flight."
+    "content": "# GIB2A POWER v26.1.3\n\nAdvanced FrSky Neuron ESC Telemetry Dashboard for ETHOS\n\n- Automatic display invalidation limited to 1 Hz\n- Native ETHOS annular-sector rendering\n- Experimental PNG mask renderer removed\n- RX Battery uses the normalized and cached standard source engine\n- RSSI Dashboard and Flight Summary use a dB fallback when ETHOS supplies no unit\n- Explicit ETHOS RSSI units remain unchanged\n- Flight Summary includes Max RPM, Max Current, Max Power, Min Pack Voltage, duration, and separate RSSI minima\n- Gauge rendering validated on X20 Pro AW with ETHOS 26.1 Nightly; validation on every stable ETHOS release is not claimed\n- Existing telemetry, alarms, callouts, Smart Battery, chrono, persistence, and layouts otherwise preserved\n\nVerify the installation and telemetry sources on the target radio before flight."
   },
   "folder": "GIB2APW",
   "files": [

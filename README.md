@@ -6,7 +6,7 @@ Part of the **GIB2A Advanced Telemetry Dashboard** family.
 
 ![GIB2A POWER](docs/GIB2A%20PW.png)
 
-[**Download GIB2A POWER v26.1.2 — ETHOS Suite ZIP**](https://github.com/GIB2A/GIB2A-FrSky-ETHOS-Power-Telemetry/releases/download/v26.1.2/GIB2A-POWER-v26.1.2.zip)
+[**Download GIB2A POWER v26.1.3 — ETHOS Suite ZIP**](https://github.com/GIB2A/GIB2A-FrSky-ETHOS-Power-Telemetry/releases/download/v26.1.3/GIB2A-POWER-v26.1.3.zip)
 
 ## Overview
 
@@ -22,11 +22,16 @@ It is the official electric-power sibling to [GIB2A TURBINE](https://github.com/
 - ESC consumption display in mAh
 - Auto Bind for seven FrSky Neuron telemetry roles using AppID families and units
 - Manual source selection for receiver voltage, RSSI, DIY fields, and chrono
+- Normalized and cached standard-source acquisition for manually selected RX Battery, including safe source recovery
 - Configurable battery, pack-voltage, temperature, and RPM alarms
 - Battery callouts at 50% and 35%
 - Standard, high-contrast, and amber themes
 - Responsive layouts for 480x300, 480x320, and 800x480 widget areas
+- Native ETHOS annular-sector rendering with no experimental PNG mask engine
+- `dB` display fallback for RSSI 2.4 and RSSI 900 when ETHOS supplies an empty unit
+- Flight Summary with Max RPM, Max Current, Max Power, Min Pack Voltage, duration, and separate RSSI 2.4/900 minima
 - Protected source reads and cached drawing data
+- Automatic display invalidation limited to 1 Hz for improved ETHOS context-menu responsiveness, without changing telemetry acquisition
 
 ## Telemetry
 
@@ -40,17 +45,17 @@ GIB2A POWER supports FrSky Neuron ESC telemetry through the public FrSky ETHOS L
 
 ### ETHOS Radio Compatibility
 
-Responsive layouts for 480x300, 480x320, and 800x480 have passed local rendering checks. A specific radio, ETHOS firmware, and Neuron ESC combination must still be verified on target hardware before flight.
+Responsive layouts for 480x300, 480x320, and 800x480 have passed local rendering checks. Native gauge rendering was validated on X20 Pro AW with ETHOS 26.1 Nightly. This does not claim validation on every stable ETHOS release; each intended radio, firmware, and Neuron ESC combination must still be verified before flight.
 
 ## Installation
 
 ### ETHOS Suite Installation
 
-1. Download `GIB2A-POWER-v26.1.2.zip` from the GitHub Release.
+1. Download `GIB2A-POWER-v26.1.3.zip` from the GitHub Release.
 2. Open ETHOS Suite and select `Lua Library` > `Install from local .zip`.
 3. Select the ZIP without extracting it.
 4. Let ETHOS Suite install the `GIB2APW` widget folder.
-5. Restart the radio and add `GIB2A POWER V26.1.2` to a view.
+5. Restart the radio and add `GIB2A POWER V26.1.3` to a view.
 6. Discover telemetry, run Auto Bind if appropriate, and verify every assigned source before flight.
 
 The ETHOS Suite package stores its manifest and payload files directly at the ZIP root. The manifest installs those files into `RADIO:/scripts/GIB2APW/`.
@@ -73,17 +78,17 @@ GIB2A POWER supports configurable battery, voltage, temperature, and RPM alert f
 
 Download the ETHOS Suite installation package:
 
-[GIB2A POWER v26.1.2 — Download ZIP](https://github.com/GIB2A/GIB2A-FrSky-ETHOS-Power-Telemetry/releases/download/v26.1.2/GIB2A-POWER-v26.1.2.zip)
+[GIB2A POWER v26.1.3 — Download ZIP](https://github.com/GIB2A/GIB2A-FrSky-ETHOS-Power-Telemetry/releases/download/v26.1.3/GIB2A-POWER-v26.1.3.zip)
 
 ## Release
 
-- Version: `26.1.2`
-- Tag: `v26.1.2`
-- Package: `GIB2A-POWER-v26.1.2.zip`
+- Version: `26.1.3`
+- Tag: `v26.1.3`
+- Package: `GIB2A-POWER-v26.1.3.zip`
 - Installed folder: `GIB2APW`
 - Internal widget key: `GIB2APW`
 
-Local validation passed 161,145 assertions across 18 viewport sizes in a mock Lua 5.3 runtime. Physical radio and ESC validation was not performed for this release build. This evidence does not replace validation of a specific radio, firmware, and ESC combination. See the [v26.1.2 release notes](docs/release-notes/V26.1.2.md) and [SHA-256 checksums](releases/V26.1.2/SHA256SUMS.txt).
+The 1 Hz display-refresh behavior and native gauge rendering were validated on an X20 Pro AW running ETHOS 26.1 Nightly. This is not a claim of validation across all stable ETHOS versions. Local package and Lua checks remain distinct from target-radio validation. See the [v26.1.3 release notes](docs/release-notes/V26.1.3.md) and [SHA-256 checksums](releases/V26.1.3/SHA256SUMS.txt).
 
 ## GIB2A Product Family
 
